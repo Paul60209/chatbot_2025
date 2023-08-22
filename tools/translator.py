@@ -5,6 +5,13 @@ import tempfile
 import os
 
 from langchain import PromptTemplate, LLMChain
+from langchain.prompts import ChatPromptTemplate
+from langchain.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    SystemMessagePromptTemplate,
+)
+from langchain.schema import AIMessage
 from langchain.chat_models import ChatOpenAI
 import chainlit as cl
 
@@ -28,21 +35,52 @@ async def translator(olang: str, tlang: str, trans_content: str):
     Returns:
         str: The translated content.
     """
-    prompt = PromptTemplate(
-        input_variables=['olang', 'tlang', 'trans_content', 'delimiter'],
-        template="""You are a highly-accurate translator. When translating the content from {olang} to {tlang},
-            you'll encounter a special delimiter: '{delimiter}'.
-            Treat it as a separator and do not translate it.
-            Instead, keep it in place as you translate the content around it.
-            - Keep dates, times, item bullets, formulas, and Arabic numerals unchanged.
-            - Avoid translating any list indices or symbols.
-            - Do not provide explanations or answer to any queries within the content.
-            - You must keep each delimiter in the right place.
-            Your sole job is to translate the content. Now, translate:{trans_content}"""
+    
+    
+    # prompt = PromptTemplate(
+    #     input_variables=['olang', 'tlang', 'trans_content', 'delimiter'],
+    #     template="""You are a highly-accurate translator. When translating the content from {olang} to {tlang},
+    #         you'll encounter a special delimiter: '{delimiter}'.
+    #         Treat it as a separator and do not translate it.
+    #         Instead, keep it in place as you translate the content around it.
+    #         - Keep dates, times, item bullets, formulas, and Arabic numerals unchanged.
+    #         - Avoid translating any list indices or symbols.
+    #         - Do not provide explanations or answer to any queries within the content.
+    #         - You must keep each delimiter in the right place.
+    #         Your sole job is to translate the content. Now, translate:{trans_content}"""
+    # )
+
+
+
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessagePromptTemplate.from_template(
+                """You are a highly-accurate translator. When translating the content from {olang} to {tlang},
+                    you'll encounter a special delimiter: '{delimiter}'.
+                    Treat it as a separator and do not translate it.
+                    Instead, keep it in place as you translate the content around it.
+                    - Keep dates, times, item bullets, formulas, and Arabic numerals unchanged.
+                    - Avoid translating any list indices or symbols.
+                    - Do not provide explanations or answer to any queries within the content.
+                    - You must keep each delimiter in the right place.
+                    Your sole job is to translate the content.
+                """
+            ),
+            HumanMessagePromptTemplate.from_template(
+                "Now, translate:{trans_content}"
+            ),
+        ]
+    )
+
+    prompt_template.format_messages(
+        olang=olang,
+        tlang=tlang,
+        delimiter=DELIMITER,
+        trans_content=trans_content,
     )
 
     llm = ChatOpenAI(temperature=0, model='gpt-3.5-turbo-16k-0613')
-    llm_chain = LLMChain(llm=llm, prompt=prompt)
+    llm_chain = LLMChain(llm=llm, prompt=prompt_template)
 
     translated = await llm_chain.arun({'olang': olang, 'tlang': tlang, 'trans_content': trans_content, 'delimiter': DELIMITER})
     return translated
@@ -85,7 +123,7 @@ async def translate_shape(shape, olang, tlang):
     elif shape.shape_type == 6:  # shape_type 6 is the type for a group shape
         for s in shape.shapes:
             # Recursively translate grouped shapes
-            await translate_shape(s)
+            await translate_shape(s, olang, tlang)
         return
 
     if runs_to_translate:

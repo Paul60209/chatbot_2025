@@ -63,7 +63,7 @@ async def start():
         agent=AgentType.OPENAI_MULTI_FUNCTIONS,
         verbose=True,
         prompt=prompt,
-        memory=memory,
+        # memory=memory,
     )
     cl.user_session.set("agent", agent)
 
@@ -86,7 +86,9 @@ async def main(message):
                 display="inline",
             ),
         ]
+
         await cl.Message(
             content="This is the translated ppt.", elements=elements
         ).send()
+
 

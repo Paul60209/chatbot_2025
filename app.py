@@ -9,11 +9,12 @@ from langchain.prompts import PromptTemplate
 from langchain.memory import ConversationBufferMemory
 import chainlit as cl
 
+import config
 from tools.stock_price import StockPriceTool
 from tools.stock_performance import StockPercentageChangeTool, StockGetBestPerformingTool
 from tools.sql_query import SQLQueryTool
 from tools.ppt_translator import PowerPointTranslator
-import config
+from tools.quotation_tool import QuotationCreator
 
 langchain.debug = True
 
@@ -54,7 +55,7 @@ async def start():
     # Tools
     tools = [StockPriceTool(), StockPercentageChangeTool(),
              StockGetBestPerformingTool(), SQLQueryTool(),
-             PowerPointTranslator()]
+             PowerPointTranslator(), QuotationCreator()]
 
     # Agent
     agent = initialize_agent(
@@ -79,16 +80,15 @@ async def main(message):
     if config.OUTPUT_PATH == None:
         await cl.Message(content=res).send()
     else:
+        print(f"提示: output={config.OUTPUT_PATH}")
         elements = [
             cl.File(
-                name="output.pptx",
-                path="./output.pptx",
+                name=config.OUTPUT_PATH.split("/")[-1],
+                path=f"{config.OUTPUT_PATH}",
                 display="inline",
             ),
         ]
 
         await cl.Message(
-            content="This is the translated ppt.", elements=elements
+            content="This is the output file.", elements=elements
         ).send()
-
-

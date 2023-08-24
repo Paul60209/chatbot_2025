@@ -127,6 +127,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+config/
+config.py
+config
+token.pickle
 
 # Spyder project settings
 .spyderproject

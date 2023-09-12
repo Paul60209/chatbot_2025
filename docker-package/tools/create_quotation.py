@@ -6,23 +6,24 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 
 load_dotenv()
-scope = os.getenv('SCOPES', None)
+google_scope = os.getenv('GOOGLE_SCOPES', None)
+list_of_google_scope = google_scope.split(",")
 temp_workbook_id = os.getenv('TEMP_WORKBOOK_ID', None)
 
-
 def get_creds():
+    # print(f'測試scope: {google_scope}')
     creds = None
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
 
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'config/credentials.json', scope)
-            creds = flow.run_local_server(port=0)
+        # if creds and creds.expired and creds.refresh_token:
+        #     creds.refresh(Request())
+        # else:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'config/credentials.json', list_of_google_scope)
+        creds = flow.run_local_server(port=0)
 
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)

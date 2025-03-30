@@ -1,11 +1,10 @@
 import os
-
+import pymysql
 from typing import Optional, Type
 from pydantic import BaseModel, Field
-from langchain.utilities import SQLDatabase
-from langchain.llms import OpenAI
-from langchain_experimental.sql import SQLDatabaseChain
-from langchain.prompts import PromptTemplate
+from langchain_community.llms import OpenAI
+from langchain_core.prompts import PromptTemplate
+from langchain_core.tools import BaseTool
 
 from tools.default_tool import DefaultTool
 
@@ -19,59 +18,61 @@ class SQLQueryCheckInput(BaseModel):
 
 class SQLQueryTool(DefaultTool):
     name = "execute_sql_query"
-    # description = """
-    #         Input to this tool is a detailed and correct SQL query, output is a result from the database.
-    #         If the query is not correct, an error message will be returned.
-    #         If an error is returned, rewrite the query, check the query, and try again.
-    #         """
     description = """
             This tool is useful for when you need to find out the result of a SQL query.
             """
 
     def _run(self, query: str):
-        db_url = os.getenv('CLEARDB_DATABASE_URL', None).split('?')[0]
-        open_ai_key = os.getenv('OPENAI_API_KEY', None)
+        db_url = os.getenv('CLEARDB_DATABASE_URL', None)
+        if not db_url:
+            return "Database URL not found in environment variables"
 
-        # TEMPLATE = """Given an input question, first create a syntactically correct 
-        #             'select' query to run, then look at the results of the query and return the answer.
-        #             Use the following format:
+        try:
+            # Parse the MySQL URL
+            # Format: mysql://user:pass@host:port/dbname
+            db_url = db_url.replace('mysql://', '')
+            if '@' in db_url:
+                auth, rest = db_url.split('@')
+                user = auth.split(':')[0]
+                password = auth.split(':')[1] if ':' in auth else None
+            else:
+                user = 'root'
+                password = None
+                rest = db_url
 
-        #             Question: "Question here"
-        #             SQLQuery: "SQL Query to run"
-        #             SQLResult: "Result of the SQLQuery"
-        #             Answer: "Final answer here"
+            if '/' in rest:
+                host_port, dbname = rest.split('/')
+            else:
+                host_port = rest
+                dbname = None
 
-        #             Only use the following tables:
+            if ':' in host_port:
+                host, port = host_port.split(':')
+                port = int(port)
+            else:
+                host = host_port
+                port = 3306
 
-        #             sales.
+            # Connect to the database
+            connection = pymysql.connect(
+                host=host,
+                user=user,
+                password=password,
+                database=dbname,
+                port=port,
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
 
-        #             Some examples of SQL queries that corrsespond to questions are:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(query)
+                    result = cursor.fetchall()
+                    return result
+            finally:
+                connection.close()
 
-        #             {
-        #                 {'ID':['ID07351', 'ID07352', 'ID07353']},
-        #                 {'Date':['2023/1/1', '2023/1/4', '2023/1/7']},
-        #                 {'Region':['関東', '関西', '関東']},
-        #                 {'City':['東京', '京都', '千葉']},
-        #                 {'Category':['野菜', '野菜', '果物']},
-        #                 {'Product':['キャベツ', '玉ねぎ', 'リンゴ']},
-        #                 {'Quantity':[33, 87, 58]},
-        #                 {'Unit_Price':[244, 481, 258]},
-        #                 {'Total_Price':[8052, 41847, 14964]},
-        #             }
-
-        #             Question: {input}
-        #             """
-
-        # CUSTOM_PROMPT = PromptTemplate(
-        #     input_variables=["input"], template=TEMPLATE
-        # )
-        llm = OpenAI(temperature=0, openai_api_key=open_ai_key,
-                     model_name='gpt-3.5-turbo')
-
-        db = SQLDatabase.from_uri(db_url)
-        db_chain = SQLDatabaseChain.from_llm(
-            llm, db, verbose=True, )
-        result = db_chain.run(query)
-        return result
+        except Exception as e:
+            return f"Error executing query: {str(e)}"
 
     args_schema: Optional[Type[BaseModel]] = SQLQueryCheckInput

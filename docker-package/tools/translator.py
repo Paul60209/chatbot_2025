@@ -17,14 +17,15 @@ from pydantic import BaseModel, Field
 from typing import Type, Optional, Dict, Any
 import time
 
-import config
+# 定義輸出路徑
+OUTPUT_PATH = 'output'
 
 nest_asyncio.apply()
 
 class PowerPointTranslatorInput(BaseModel):
     """PowerPoint 翻譯工具的輸入模型"""
-    olang: str = Field(..., description="原始語言代碼 (例如: 'zh-TW', 'en', 'ja')")
-    tlang: str = Field(..., description="目標語言代碼 (例如: 'zh-TW', 'en', 'ja')")
+    olang: str = Field(..., description="Original language code (e.g., 'zh-TW', 'en', 'ja')")
+    tlang: str = Field(..., description="Target language code (e.g., 'zh-TW', 'en', 'ja')")
 
 class PowerPointTranslator(BaseTool):
     """用於翻譯 PowerPoint 文件的 Langchain 工具"""
@@ -58,32 +59,32 @@ class PowerPointTranslator(BaseTool):
     async def _arun(self, olang: str, tlang: str) -> str:
         """異步運行方法，處理 PowerPoint 翻譯請求"""
         try:
-            print(f"\n開始執行翻譯工具...")
-            print(f"源語言: {olang}")
-            print(f"目標語言: {tlang}")
+            print(f"\nStarting translation tool...")
+            print(f"Source language: {olang}")
+            print(f"Target language: {tlang}")
             
             # 等待用戶上傳文件
-            print("等待用戶上傳文件...")
+            print("Waiting for file upload...")
             file_path = await upload_file()
-            print(f"上傳結果: {file_path}")
+            print(f"Upload result: {file_path}")
             
             if not file_path:
-                return "未收到文件或文件上傳失敗"
+                return "No file received or upload failed"
 
             # 執行翻譯
-            print("開始執行翻譯...")
+            print("Starting translation...")
             output_path = await translate_ppt(file_path, olang, tlang)
-            print(f"翻譯結果: {output_path}")
+            print(f"Translation result: {output_path}")
             
             # 返回結果
             if output_path:
-                return f"翻譯完成！文件已保存至: {output_path}"
+                return f"Translation completed! File saved to: {output_path}"
             else:
-                return "翻譯過程中發生錯誤"
+                return "Error occurred during translation"
                 
         except Exception as e:
-            print(f"翻譯工具執行錯誤: {str(e)}")
-            return f"翻譯過程中發生錯誤: {str(e)}"
+            print(f"Translation tool execution error: {str(e)}")
+            return f"Error during translation: {str(e)}"
 
 async def translate_text(text: str, olang: str, tlang: str) -> str:
     """使用 ChatGPT 翻譯文本。
@@ -177,7 +178,6 @@ def get_run_properties(run):
         'bold': font.bold,
         'italic': font.italic,
         'underline': font.underline,
-        'language': font.language_id if hasattr(font, 'language_id') else None,
         'color': get_color_properties(font.color),
         'fill': get_color_properties(font.fill.fore_color) if hasattr(font, 'fill') else None,
     }
@@ -235,8 +235,6 @@ def apply_run_properties(run, properties):
         font.italic = properties['italic']
     if properties['underline'] is not None:
         font.underline = properties['underline']
-    if properties['language'] and hasattr(font, 'language_id'):
-        font.language_id = properties['language']
     
     # 應用顏色
     if properties['color']:
@@ -343,34 +341,34 @@ async def translate_ppt(file_path: str, olang: str, tlang: str) -> str:
     """
     try:
         # 1. 建立輸出目錄
-        os.makedirs('output', exist_ok=True)
+        os.makedirs(OUTPUT_PATH, exist_ok=True)
         
         # 2. 準備輸出文件路徑
         file_name = os.path.basename(file_path)
         name, ext = os.path.splitext(file_name)
         output_file = f'translated_{name}{ext}'
-        output_path = os.path.join('output', output_file)
+        output_path = os.path.join(OUTPUT_PATH, output_file)
         
         # 3. 載入 PowerPoint
-        print("\n開始翻譯 PowerPoint 文件...")
-        print(f"源語言: {olang}")
-        print(f"目標語言: {tlang}")
-        await cl.Message(content=f"開始進行翻譯...\n從 {olang} 翻譯至 {tlang}").send()
+        print("\nStarting PowerPoint translation...")
+        print(f"Source language: {olang}")
+        print(f"Target language: {tlang}")
+        await cl.Message(content=f"Starting translation...\nFrom {olang} to {tlang}").send()
         
         presentation = Presentation(file_path)
         total_slides = len(presentation.slides)
         
         # 4. 翻譯每個投影片
         for index, slide in enumerate(presentation.slides, 1):
-            progress_msg = f"正在翻譯第 {index}/{total_slides} 張投影片..."
+            progress_msg = f"Translating slide {index}/{total_slides}..."
             print(f"\n{progress_msg}")
             await cl.Message(content=progress_msg).send()
             for shape in slide.shapes:
                 await translate_shape(shape, olang, tlang)
         
         # 5. 儲存翻譯後的文件
-        print("\n正在儲存翻譯後的文件...")
-        await cl.Message(content="翻譯完成，正在生成檔案...").send()
+        print("\nSaving translated file...")
+        await cl.Message(content="Translation completed, generating file...").send()
         presentation.save(output_path)
         
         # 6. 刪除臨時文件
@@ -389,17 +387,17 @@ async def translate_ppt(file_path: str, olang: str, tlang: str) -> str:
             
             # 8. 發送完成消息和下載連結
             await cl.Message(
-                content="翻譯已完成！請點擊下方連結下載翻譯後的文件：",
+                content="Translation completed! Click the link below to download the translated file:",
                 elements=elements
             ).send()
         except Exception as e:
             # 在非 Chainlit 環境中，只打印消息
-            print("\n翻譯完成！文件已保存至:", output_path)
+            print("\nTranslation completed! File saved to:", output_path)
         
         return output_path
         
     except Exception as e:
-        print(f"\n翻譯過程中發生錯誤: {str(e)}")
+        print(f"\nError during translation process: {str(e)}")
         if os.path.exists(file_path):
             os.remove(file_path)
         raise
@@ -418,14 +416,14 @@ async def upload_file() -> str:
         while files == None:
             try:
                 if upload_start_time is None:
-                    print("\n等待用戶開始上傳檔案...")
+                    print("\nWaiting for user to start file upload...")
                 
                 files = await cl.AskFileMessage(
-                    content="請上傳 PowerPoint 文件（.ppt 或 .pptx，檔案大小上限為 10MB）",
+                    content="Please upload a PowerPoint file (.ppt or .pptx, max file size: 10MB)",
                     accept=["application/vnd.ms-powerpoint", 
                            "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
                     max_size_mb=10,
-                    timeout=5  # 縮短檢查間隔為5秒
+                    timeout=20  # 縮短檢查間隔為5秒
                 ).send()
                 
                 if files:
@@ -438,31 +436,31 @@ async def upload_file() -> str:
                 if "uploading" in str(e).lower():
                     if upload_start_time is None:
                         upload_start_time = time.time()
-                        print("\n正在接收檔案，請稍候...")
+                        print("\nReceiving file, please wait...")
                     # 檔案正在上傳中，繼續等待
                     continue
                 else:
                     # 其他錯誤，需要處理
-                    print(f"檔案上傳過程中發生錯誤: {str(e)}")
+                    print(f"Error during file upload: {str(e)}")
                     return None
 
         file = files[0]
-        print(f"\n已完成檔案接收：{file.name}")
+        print(f"\nFile received: {file.name}")
         
         # 檢查檔案副檔名
         file_name = file.name.lower()
         if not file_name.endswith(('.ppt', '.pptx')):
-            print(f"不支援的檔案格式：{file_name}")
-            await cl.Message(content="請上傳 .ppt 或 .pptx 格式的檔案").send()
+            print(f"Unsupported file format: {file_name}")
+            await cl.Message(content="Please upload a .ppt or .pptx file").send()
             return None
 
         # 保存上傳的文件
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_name)[1]) as temp_file:
             temp_file.write(file.content)
-            await cl.Message(content=f"已收到檔案：{file.name}，正在準備翻譯...").send()
+            await cl.Message(content=f"File received: {file.name}, preparing for translation...").send()
             return temp_file.name
             
     except Exception as e:
-        print(f"文件上傳過程中發生錯誤: {str(e)}")
-        await cl.Message(content=f"檔案上傳失敗：{str(e)}").send()
+        print(f"Error during file upload: {str(e)}")
+        await cl.Message(content=f"File upload failed: {str(e)}").send()
         return None 

@@ -7,14 +7,13 @@ os.environ['GRPC_POLL_STRATEGY'] = 'epoll1'
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.messages import SystemMessage
 from langchain.memory import ConversationBufferMemory
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import chainlit as cl
 
-import config
 from tools.sql_query import SQLQueryTool
 from tools.translator import PowerPointTranslator
 
@@ -41,6 +40,51 @@ async def start():
     # System Message
     system_message = """You are a nice chatbot who can help users query the sales database and translate PowerPoint files.
         
+        IMPORTANT: Your TOP PRIORITY is to recognize translation requests and IMMEDIATELY call the translate_ppt tool.
+        If you see ANY mention of PPT/PowerPoint translation, you MUST call the translate_ppt tool before responding.
+        
+        For PowerPoint translation:
+        You MUST use the PowerPointTranslator tool whenever a user mentions PowerPoint translation.
+        The translate_ppt tool requires two parameters:
+        - olang: The original language code
+        - tlang: The target language code
+        
+        Language code mapping rules (STRICTLY FOLLOW THESE):
+        - For Chinese/中文/繁體中文: ALWAYS use "zh-TW"
+        - For English/英文: ALWAYS use "en"
+        - For Japanese/日文: ALWAYS use "ja"
+        
+        TRANSLATION REQUEST PATTERNS TO RECOGNIZE (MUST CALL translate_ppt IMMEDIATELY):
+        1. English patterns:
+           - "translate [this/the] [ppt/powerpoint/presentation] from X to Y"
+           - "translate from X to Y"
+           - "X to Y translation"
+        
+        2. Chinese patterns:
+           - "[幫我/請]將[ppt/簡報]從X翻譯成Y"
+           - "[幫我/請]把[ppt/簡報]從X翻譯成Y"
+           - "從X翻譯成Y"
+           - "[ppt/簡報]從X翻Y"
+           - "[X轉Y/X翻Y]"
+        
+        3. Japanese patterns:
+           - "[ppt/パワーポイント]をXからYに翻訳"
+           - "XからYに翻訳"
+           - "X語からY語に"
+        
+        TRANSLATION HANDLING STEPS:
+        1. If you see ANY of the above patterns:
+           - IMMEDIATELY call translate_ppt tool with appropriate language codes
+           - DO NOT ask for confirmation
+           - DO NOT engage in additional dialogue
+           - Just call the tool and wait for upload
+        
+        2. If languages are not specified:
+           - Ask for languages in the same language as the user's request
+           - Once they specify, IMMEDIATELY call translate_ppt
+        
+        CRITICAL: You MUST call translate_ppt tool BEFORE sending any response to the user.
+        
         For database queries:
         You can execute SQL queries to get information from the database.
         The database has a 'sales' table with the following columns:
@@ -54,45 +98,25 @@ async def start():
         - Unit_Price (DECIMAL)
         - Total_Price (DECIMAL)
         
-        For PowerPoint translation:
-        IMPORTANT: You MUST ALWAYS use the translate_ppt tool for ANY request related to PowerPoint or PPT translation.
-        DO NOT ask questions or make suggestions - IMMEDIATELY call the tool with appropriate parameters.
-        
-        Language code mapping (STRICT RULES - NO EXCEPTIONS):
-        - Chinese (中文/中國語/華語): ALWAYS use "zh-TW"
-        - English (英文/英語): ALWAYS use "en"
-        - Japanese (日文/日語): ALWAYS use "ja"
-        
-        TRANSLATION REQUEST HANDLING:
-        1. When user mentions translation in ANY way (including words like "翻譯", "translate", "轉換語言"):
-           - IMMEDIATELY identify source and target languages
-           - Call translate_ppt with correct language codes
-           - Example: translate_ppt(olang="zh-TW", tlang="en")
-           - Then say "好的，請上傳您要翻譯的 PowerPoint 文件"
-        
-        2. If languages are not specified:
-           - Ask "請問您要將 PowerPoint 從哪種語言翻譯成哪種語言？"
-           - Once user specifies languages, IMMEDIATELY call translate_ppt
-        
-        CRITICAL RULES:
-        - NEVER skip calling the translate_ppt tool for translation requests
-        - NEVER wait for file upload before calling the tool
-        - NEVER ask for language confirmation if languages are already specified
-        - ALWAYS call translate_ppt BEFORE asking for file upload
+        LANGUAGE RESPONSE RULES:
+        1. ALWAYS detect the language of the user's input
+        2. Respond in the SAME language as the user's input
+        3. Keep all technical terms and database values in their original form
         
         EXAMPLES:
-        User: "幫我翻譯這個PPT"
-        Assistant: "請問您要將 PowerPoint 從哪種語言翻譯成哪種語言？"
+        User: "I want to translate this presentation from Chinese to English"
+        Action: MUST call translate_ppt with olang="zh-TW", tlang="en" FIRST
+        Assistant: "Please upload your PowerPoint file for translation"
         
-        User: "從中文翻譯成英文"
-        Assistant: "好的，請上傳您要翻譯的 PowerPoint 文件"
-        Action: MUST call translate_ppt(olang="zh-TW", tlang="en")
+        User: "幫我將ppt從英文翻譯為繁體中文"
+        Action: MUST call translate_ppt with olang="en", tlang="zh-TW" FIRST
+        Assistant: "請上傳您的 PowerPoint 檔案進行翻譯"
         
-        User: "我要把簡報從日文轉成中文"
-        Assistant: "好的，請上傳您要翻譯的 PowerPoint 文件"
-        Action: MUST call translate_ppt(olang="ja", tlang="zh-TW")
-        
-        Always communicate in Traditional Chinese (繁體中文).
+        User: "PPTファイルを翻訳したい"
+        Assistant: "どの言語からどの言語に翻訳しますか？"
+        User: "日本語から英語に"
+        Action: MUST call translate_ppt with olang="ja", tlang="en" FIRST
+        Assistant: "PowerPointファイルをアップロードしてください"
         """
 
     # Memory
@@ -106,7 +130,7 @@ async def start():
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
 
-    agent = create_openai_functions_agent(llm=llm, tools=tools, prompt=prompt)
+    agent = create_openai_tools_agent(llm=llm, tools=tools, prompt=prompt)
 
     agent_executor = AgentExecutor(
         agent=agent,
@@ -122,15 +146,14 @@ async def main(message):
     agent = cl.user_session.get("agent")
     
     try:
-        print(f"\n用戶輸入: {message}")
-        print(f"可用工具: {[tool.name for tool in agent.tools]}")
+        print(f"\nUser input: {message}")
         response = await cl.make_async(agent.invoke)(
             {"input": message.content}
         )
-        print(f"\n工具調用: {response.get('intermediate_steps', [])}")
-        print(f"LLM回覆: {response['output']}\n")
+        print(f"\nTool invocation: {response.get('intermediate_steps', [])}")
+        print(f"LLM response: {response['output']}\n")
         await cl.Message(content=response["output"]).send()
     except Exception as e:
-        error_message = f"發生錯誤：{str(e)}"
-        print(f"錯誤: {error_message}")
+        error_message = f"Error occurred: {str(e)}"
+        print(f"Error: {error_message}")
         await cl.Message(content=error_message).send()

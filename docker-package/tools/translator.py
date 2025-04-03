@@ -29,8 +29,8 @@ class PowerPointTranslatorInput(BaseModel):
 
 class PowerPointTranslator(BaseTool):
     """用於翻譯 PowerPoint 文件的 Langchain 工具"""
-    name = "translate_ppt"
-    description = """Translate a PowerPoint file from one language to another.
+    name: str = "translate_ppt"
+    description: str = """Translate a PowerPoint file from one language to another.
     
     Args:
         olang (str): The source language code. Must be one of:
@@ -78,7 +78,9 @@ class PowerPointTranslator(BaseTool):
             
             # 返回結果
             if output_path:
-                return f"Translation completed! File saved to: {output_path}"
+                # 發送完成訊息
+                await cl.Message(content="翻譯已完成！檔案已儲存至: " + output_path).send()
+                return "TRANSLATION_COMPLETE"
             else:
                 return "Error occurred during translation"
                 
@@ -409,43 +411,22 @@ async def upload_file() -> str:
         str: 上傳的文件路徑
     """
     try:
-        files = None
-        upload_start_time = None
-        
         # 等待用戶上傳文件
-        while files == None:
-            try:
-                if upload_start_time is None:
-                    print("\nWaiting for user to start file upload...")
-                
-                files = await cl.AskFileMessage(
-                    content="Please upload a PowerPoint file (.ppt or .pptx, max file size: 10MB)",
-                    accept=["application/vnd.ms-powerpoint", 
-                           "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
-                    max_size_mb=10,
-                    timeout=20  # 縮短檢查間隔為5秒
-                ).send()
-                
-                if files:
-                    break
-                    
-            except TimeoutError:
-                # 超時不代表錯誤，只是還沒收到檔案
-                continue
-            except Exception as e:
-                if "uploading" in str(e).lower():
-                    if upload_start_time is None:
-                        upload_start_time = time.time()
-                        print("\nReceiving file, please wait...")
-                    # 檔案正在上傳中，繼續等待
-                    continue
-                else:
-                    # 其他錯誤，需要處理
-                    print(f"Error during file upload: {str(e)}")
-                    return None
+        files = await cl.AskFileMessage(
+            content="Please upload a PowerPoint file (.ppt or .pptx, max file size: 10MB)",
+            accept=["application/vnd.ms-powerpoint", 
+                   "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+            max_size_mb=10,
+            timeout=20
+        ).send()
+
+        if not files or len(files) == 0:
+            print("No file received")
+            return None
 
         file = files[0]
         print(f"\nFile received: {file.name}")
+        print(f"File object attributes: {dir(file)}")  # 打印文件物件的所有屬性
         
         # 檢查檔案副檔名
         file_name = file.name.lower()
@@ -454,13 +435,29 @@ async def upload_file() -> str:
             await cl.Message(content="Please upload a .ppt or .pptx file").send()
             return None
 
-        # 保存上傳的文件
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_name)[1]) as temp_file:
-            temp_file.write(file.content)
-            await cl.Message(content=f"File received: {file.name}, preparing for translation...").send()
-            return temp_file.name
+        # 建立臨時檔案
+        temp_dir = tempfile.gettempdir()
+        temp_file_path = os.path.join(temp_dir, file.name)
+        
+        # 寫入檔案內容
+        with open(temp_file_path, 'wb') as f:
+            if hasattr(file, 'path'):
+                # 如果檔案已經在本地，直接複製
+                with open(file.path, 'rb') as source:
+                    f.write(source.read())
+            elif hasattr(file, 'content'):
+                print(f" use File content")
+                f.write(file.content)
+            elif hasattr(file, 'bytes'):
+                print(f" use File bytes")
+                f.write(file.bytes)
+            else:
+                print("No valid file content found")
+                return None
             
+        print(f"File saved to: {temp_file_path}")
+        return temp_file_path
+        
     except Exception as e:
         print(f"Error during file upload: {str(e)}")
-        await cl.Message(content=f"File upload failed: {str(e)}").send()
         return None 

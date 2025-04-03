@@ -142,16 +142,14 @@ async def start():
     cl.user_session.set("agent", agent_executor)
 
 @cl.on_message
-async def main(message):
+async def main(message: cl.Message):
     agent = cl.user_session.get("agent")
     
     try:
-        print(f"\nUser input: {message}")
         response = await cl.make_async(agent.invoke)(
-            {"input": message.content}
+            {"input": str(message)}
         )
         print(f"\nTool invocation: {response.get('intermediate_steps', [])}")
-        print(f"LLM response: {response['output']}\n")
         await cl.Message(content=response["output"]).send()
     except Exception as e:
         error_message = f"Error occurred: {str(e)}"
